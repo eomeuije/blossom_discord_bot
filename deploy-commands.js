@@ -12,9 +12,12 @@ const commands = [
 1 = 이건 못 참지 상자
 2 = 알파몬x왕룡검
 3 = 미네르바몬x`))
-	.addIntegerOption(option => option.setName('개수').setDescription('가챠 개수를 알려주세요.(1번은 최대 50)')),
+	.addIntegerOption(option => option.setName('개수').setDescription('가챠 개수를 알려주세요.')),
 
-	new SlashCommandBuilder().setName('ping').setDescription('is ping command.')
+	new SlashCommandBuilder().setName('play').setDescription('링크 또는 키를 재생합니다.')
+	.addStringOption(option => option.setName('key').setDescription('링크 또는 키를 알려주세요.')),
+	new SlashCommandBuilder().setName('skip').setDescription('현재 재생중인 음악을 스킵합니다.'),
+	new SlashCommandBuilder().setName('git').setDescription('본 디코봇 소스코드가 저장되어 있습니다.'),
 ]
 	.map(command => command.toJSON());
 	

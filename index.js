@@ -3,8 +3,18 @@ const { randomInt } = require('crypto');
 const { Client, Intents } = require('discord.js');
 const { token } = require('./config.json');
 // play command tools
-let connection, play_queue = [];
-
+let cntPlayQ = [];
+function connectionIsExist(fchannelId, fguildId){
+	if(cntPlayQ.length === 0){			//empty
+		return -1;
+	}
+	for(let i=0;i<cntPlayQ.length;i++){	//connection is exist
+		if(cntPlayQ[i][0].joinConfig.channelId === fchannelId && cntPlayQ[i][0].joinConfig.guildId === fguildId){
+			return i;
+		}
+	}
+	return -1;							//connection is not exist
+}
 // Create a new client instance
 const client = new Client ({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_VOICE_STATES] });
 
@@ -40,6 +50,9 @@ client.on('interactionCreate', async interaction => {
 총 인원수: ${interaction.guild.memberCount}
 서버 생성 날짜: ${interaction.guild.createdAt}`);
 	}
+	else if (commandName === 'git') {
+		await interaction.reply('https://github.com/eomeuije/blossom_discord_bot');
+	}
 	else if (commandName === '내정보') {
 		await interaction.reply(`닉네임: ${interaction.member.nickname}
 태그: ${interaction.user.tag}
@@ -58,37 +71,44 @@ client.on('interactionCreate', async interaction => {
 		} = require('@discordjs/voice');
 		const ytSearch = require('yt-search');
 
-		function play_q_ctrl(need_shift) {
-			if(need_shift) play_queue.shift();
-			if(play_queue.length === 0) {connection.destroy(); return;}
-			const player_this = play_queue[0].player;
-			player_this.play(play_queue[0].src);
-			connection.subscribe(player_this);
-			player_this.on(AudioPlayerStatus.Idle, () => play_q_ctrl(true));
+		function play_q_ctrl(index) {
+			cntPlayQ[index].splice(1,1);
+			if(cntPlayQ[index].length === 1) {
+				cntPlayQ[index][0].destroy(); 
+				cntPlayQ.splice(index, 1);
+				return;
+			}
+			const player_this = cntPlayQ[index][1].plr;
+			player_this.play(cntPlayQ[index][1].src);
+			cntPlayQ[index][0].subscribe(player_this);
+			player_this.on(AudioPlayerStatus.Idle, () => play_q_ctrl(index));
 			player_this.on('error', () => {console.log('play_error')});
 		}
-
-		const client_voice_channel = interaction.member.voice.channel;
+		const guild = client.guilds.cache.get(interaction.guildId);
+		const member = guild.members.cache.get(interaction.member.user.id);
+		const voiceChannel = member.voice.channel;
 		
-		if(!client_voice_channel)
+		if(!voiceChannel)
 		{
-			await interaction.reply('음성 채널에 입장해 주세요.');
+			await interaction.editReply('음성 채널에 입장해 주세요.');
 			return;
 		}
-		if(connection && connection.id && client_voice_channel.id != connection.id)
+		const cntIndex = connectionIsExist(voiceChannel.id, interaction.guildId);
+		if(cntIndex !== -1 && voiceChannel.id != cntPlayQ[cntIndex][0].joinConfig.channelId)
 		{
-			await interaction.reply('다른 채널에서 이용중입니다.');
+			await interaction.editReply('다른 채널에서 이용중입니다.');
 			return;
 		}
 		
 		if(commandName === 'skip')
 		{
-			if(!connection){
+			if(cntIndex === -1){
+				await interaction.editReply('플레이 리스트가 없습니다.');
 				return;	
 			}
-			connection.removeAllListeners();
-			play_q_ctrl(true);
-			await interaction.reply('스킵 완료.');
+			cntPlayQ[cntIndex][0].removeAllListeners();
+			play_q_ctrl(cntIndex);
+			await interaction.editReply('스킵 완료.');
 			return;
 		}
 
@@ -110,30 +130,15 @@ client.on('interactionCreate', async interaction => {
 			stream = ytdl(video.all[0].url, {filter: 'audioonly'});
 		}
 		else {
-			await interaction.reply('링크 검색 결과가 없습니다.');
+			await interaction.editReply('링크 검색 결과가 없습니다.');
 			return;
 		}
 		if(video.all[0].seconds > 18000)
 		{
-			await interaction.reply(`영상이 너무 길어 플레이 리스트에 추가되지 않았습니다.(5시간 초과)`);
+			await interaction.editReply(`영상이 너무 길어 플레이 리스트에 추가되지 않았습니다.(5시간 초과)`);
 			return;
 		}
-		
-		const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
-		
-		//-----------
-
-		const guild = client.guilds.cache.get(interaction.guildId);
-		const member = guild.members.cache.get(interaction.member.user.id);
-		const voiceChannel = member.voice.channel;
-		
-		connection = joinVoiceChannel({
-		channelId: voiceChannel.id,
-		guildId: interaction.guildId,
-		adapterCreator: interaction.guild.voiceAdapterCreator,
-		});
-		//-----------------------------------------------------------------------------------------------
-		//radio start
+		//----------------------------------------------
 		const { NoSubscriberBehavior } = require('@discordjs/voice');
 
 		const player = createAudioPlayer({
@@ -142,24 +147,26 @@ client.on('interactionCreate', async interaction => {
 				noSubscriber: NoSubscriberBehavior.Pause,
 			},
 		});
-		if(play_queue.length !== 0)
-		{
-			play_queue.push({ 'player': player, 'src':resource});
+		const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+
+		if(cntIndex >= 0){	//if connection exist
+			cntPlayQ[cntIndex].push({plr:player, src:resource});
 			await interaction.editReply(`"${video.all[0].title}"를 플레이 리스트에 넣었습니다.`);
-			return;
+		}else{				//cntIndex === -1
+			const connection = joinVoiceChannel({
+				channelId: voiceChannel.id,
+				guildId: interaction.guildId,
+				adapterCreator: interaction.guild.voiceAdapterCreator,
+			});
+			player.play(resource);
+			connection.subscribe(player);
+			cntPlayQ.push([connection]);
+			const curIndex = cntPlayQ.length - 1;
+			player.on(AudioPlayerStatus.Idle, () => play_q_ctrl(curIndex));
+			player.on('error', () => console.log('play_error'));
+			cntPlayQ[curIndex].push({plr:player, src:resource});
+			await interaction.editReply(`"${video.all[0].title}"를 재생합니다.`);
 		}
-		play_queue.push({ 'player': player, 'src': resource });
-		play_q_ctrl(false);
-
-		// Subscribe the connection to the audio player (will play audio on the voice connection)
-		//const subscription = connection.subscribe(player);
-
-		// subscription could be undefined if the connection is destroyed!
-		// if (subscription) {
-		// 	// Unsubscribe after 5 seconds (stop playing audio on the voice connection)
-		// 	setTimeout(() => subscription.unsubscribe(), 5_000);
-		// }
-		await interaction.editReply(`"${video.all[0].title}"를 재생합니다.`);
 		//-----------------------------------------------------------------------------------------------
 	}else if (commandName === '가챠') {
 		const what = interaction.options.getInteger('종류');
