@@ -1,19 +1,9 @@
 // Require the necessary discord.js classes
 const { Client, Intents } = require('discord.js');
 const { token } = require('./config.json');
+const nextPlayer = require('./voice/nextPlayer');
 // play command tools
 let cntPlayQ = [];
-function connectionIsExist(fchannelId, fguildId){
-	if(cntPlayQ.length === 0){			//empty
-		return -1;
-	}
-	for(let i=0;i<cntPlayQ.length;i++){	//connection is exist
-		if(cntPlayQ[i][0].joinConfig.channelId === fchannelId && cntPlayQ[i][0].joinConfig.guildId === fguildId){
-			return i;
-		}
-	}
-	return -1;							//connection is not exist
-}
 // Create a new client instance
 const client = new Client ({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_VOICE_STATES] });
 
@@ -58,58 +48,13 @@ client.on('interactionCreate', async interaction => {
 서버 참여 날짜: ${interaction.member.joinedAt}
 계정 생성 날짜: ${interaction.user.createdAt}`);
 	
-	}else if(commandName === 'play' || commandName === 'skip') {
+	}else if(commandName === 'play') {
 		await interaction.reply('명령어 실행중..');
-		const ytdl = require('ytdl-core');
-		const {
-			AudioPlayerStatus,
-			StreamType,
-			createAudioPlayer,
-			createAudioResource,
-			joinVoiceChannel,
-		} = require('@discordjs/voice');
-		const ytSearch = require('yt-search');
 
-		function play_q_ctrl(index) {
-			cntPlayQ[index].splice(1,1);
-			if(cntPlayQ[index].length === 1) {
-				cntPlayQ[index][0].destroy(); 
-				cntPlayQ.splice(index, 1);
-				return;
-			}
-			const player_this = cntPlayQ[index][1].plr;
-			player_this.play(cntPlayQ[index][1].src);
-			cntPlayQ[index][0].subscribe(player_this);
-			player_this.on(AudioPlayerStatus.Idle, () => play_q_ctrl(index));
-			player_this.on('error', () => {console.log('play_error')});
-		}
+		
 		const guild = client.guilds.cache.get(interaction.guildId);
 		const member = guild.members.cache.get(interaction.member.user.id);
 		const voiceChannel = member.voice.channel;
-		
-		if(!voiceChannel)
-		{
-			await interaction.editReply('음성 채널에 입장해 주세요.');
-			return;
-		}
-		const cntIndex = connectionIsExist(voiceChannel.id, interaction.guildId);
-		if(cntIndex !== -1 && voiceChannel.id != cntPlayQ[cntIndex][0].joinConfig.channelId)
-		{
-			await interaction.editReply('다른 채널에서 이용중입니다.');
-			return;
-		}
-		
-		if(commandName === 'skip')
-		{
-			if(cntIndex === -1){
-				await interaction.editReply('플레이 리스트가 없습니다.');
-				return;	
-			}
-			cntPlayQ[cntIndex][0].removeAllListeners();
-			play_q_ctrl(cntIndex);
-			await interaction.editReply('스킵 완료.');
-			return;
-		}
 
 		//-----------
 
@@ -119,54 +64,51 @@ client.on('interactionCreate', async interaction => {
 			await interaction.editReply('키를 입력해주세요.');
 			return;
 		}
-		const videoFinder = async (query) => {
-			const videoResult = await ytSearch(query);
-			return (videoResult.videos.length > 1) ? videoResult : null; 
+
+		getConnectionIndex = require('./voice/getConnectionIndex');
+		createVoiceConnection = require('./voice/createVoiceConnection');
+		cntIndex = getConnectionIndex(cntPlayQ, voiceChannel.id, interaction.guildId);
+		const nextPlayer = require('./voice/nextPlayer');
+		if(cntIndex === -1){
+			cntIndex = cntPlayQ.length;
+			const connection = createVoiceConnection(voiceChannel.id, interaction.guildId, interaction.guild.voiceAdapterCreator);
+			cntPlayQ.push({ connection:connection, playerObj:[] })
 		}
-		
-		const video = await videoFinder(what);
-		if(video){
-			stream = ytdl(video.all[0].url, {filter: 'audioonly'});
-		}
-		else {
-			await interaction.editReply('링크 검색 결과가 없습니다.');
-			return;
-		}
-		if(video.all[0].seconds > 18000)
+		const createPlayer = require('./voice/createPlayer');
+		const playerObj = await createPlayer(what, interaction);
+
+		if(cntPlayQ[cntIndex].playerObj.length === 0)
 		{
-			await interaction.editReply(`영상이 너무 길어 플레이 리스트에 추가되지 않았습니다.(5시간 초과)`);
-			return;
-		}
-		//----------------------------------------------
-		const { NoSubscriberBehavior } = require('@discordjs/voice');
-
-		const player = createAudioPlayer({
-			
-			behaviors: {
-				noSubscriber: NoSubscriberBehavior.Pause,
-			},
-		});
-		const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
-
-		if(cntIndex >= 0){	//if connection exist
-			cntPlayQ[cntIndex].push({plr:player, src:resource});
-			await interaction.editReply(`"${video.all[0].title}"를 플레이 리스트에 넣었습니다.`);
-		}else{				//cntIndex === -1
-			const connection = joinVoiceChannel({
-				channelId: voiceChannel.id,
-				guildId: interaction.guildId,
-				adapterCreator: interaction.guild.voiceAdapterCreator,
+			const { AudioPlayerStatus } = require('@discordjs/voice');
+			playerObj.player.play(playerObj.resource);
+			cntPlayQ[cntIndex].connection.subscribe(playerObj.player);
+			playerObj.player.on(AudioPlayerStatus.Idle, () => {
+				cntPlayQ = nextPlayer(cntPlayQ, cntIndex);
 			});
-			player.play(resource);
-			connection.subscribe(player);
-			cntPlayQ.push([connection]);
-			const curIndex = cntPlayQ.length - 1;
-			player.on(AudioPlayerStatus.Idle, () => play_q_ctrl(curIndex));
-			player.on('error', () => console.log('play_error'));
-			cntPlayQ[curIndex].push({plr:player, src:resource});
-			await interaction.editReply(`"${video.all[0].title}"를 재생합니다.`);
+			playerObj.player.on('error', () => console.log('play_error'));
+			await interaction.editReply(`"${playerObj.videoTitle}"를 재생합니다.`);
+		}else{
+			await interaction.editReply(`"${playerObj.videoTitle}"를 플레이 리스트에 넣었습니다.`);
 		}
-		//-----------------------------------------------------------------------------------------------
+		cntPlayQ[cntIndex].playerObj.push(playerObj);
+		
+	}else if(commandName === 'skip'){
+		const guild = client.guilds.cache.get(interaction.guildId);
+		const member = guild.members.cache.get(interaction.member.user.id);
+		const voiceChannel = member.voice.channel;
+
+		getConnectionIndex = require('./voice/getConnectionIndex');
+		cntIndex = getConnectionIndex(cntPlayQ, voiceChannel.id, interaction.guildId);
+		const nextPlayer = require('./voice/nextPlayer');
+		if(cntIndex === -1){
+			await interaction.reply('플레이 리스트가 없습니다.');
+			return;	
+		}
+		cntPlayQ[cntIndex].connection.removeAllListeners();
+		cntPlayQ = await nextPlayer(cntPlayQ, cntIndex);
+		await interaction.reply('스킵 완료.');
+
+
 	}else if (commandName === '가챠') {
 		const what = interaction.options.getInteger('종류');
 		var count = interaction.options.getInteger('개수');
@@ -263,7 +205,7 @@ client.on('interactionCreate', async interaction => {
 				if(i % 2 == 0)
 					str += '　';
 		}
-		str += '\n\n\n결과:\n';
+		str += `\n\n\n결과:\n총 개수: ${count}개\n`;
 
 		for(var i=0;i<objcount;i++)
 		{
