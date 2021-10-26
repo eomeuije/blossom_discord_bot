@@ -1,7 +1,6 @@
 // Require the necessary discord.js classes
 const { Client, Intents } = require('discord.js');
 const { token } = require('./config.json');
-const nextPlayer = require('./voice/nextPlayer');
 // play command tools
 let cntPlayQ = [];
 // Create a new client instance
@@ -50,8 +49,6 @@ client.on('interactionCreate', async interaction => {
 	
 	}else if(commandName === 'play') {
 		await interaction.reply('명령어 실행중..');
-
-		
 		const guild = client.guilds.cache.get(interaction.guildId);
 		const member = guild.members.cache.get(interaction.member.user.id);
 		const voiceChannel = member.voice.channel;
@@ -64,18 +61,30 @@ client.on('interactionCreate', async interaction => {
 			await interaction.editReply('키를 입력해주세요.');
 			return;
 		}
+		const { 
+			nextPlayer, 
+			getConnectionIndex, 
+			createPlayer, 
+			createVoiceConnection,
+		} = require('./voice/voiceManager');
 
-		getConnectionIndex = require('./voice/getConnectionIndex');
-		createVoiceConnection = require('./voice/createVoiceConnection');
 		cntIndex = getConnectionIndex(cntPlayQ, voiceChannel.id, interaction.guildId);
-		const nextPlayer = require('./voice/nextPlayer');
+		let playerObj = await createPlayer(what);
+	
+		if (playerObj === null){
+			interaction.editReply('링크 검색 결과가 없습니다.');
+			return;
+		}
+		else if (playerObj === -1){
+			interaction.editReply(`영상이 너무 길어 플레이 리스트에 추가되지 않았습니다.(5시간 초과)`);
+			return;
+		}
+		
 		if(cntIndex === -1){
 			cntIndex = cntPlayQ.length;
 			const connection = createVoiceConnection(voiceChannel.id, interaction.guildId, interaction.guild.voiceAdapterCreator);
 			cntPlayQ.push({ connection:connection, playerObj:[] })
 		}
-		const createPlayer = require('./voice/createPlayer');
-		const playerObj = await createPlayer(what, interaction);
 
 		if(cntPlayQ[cntIndex].playerObj.length === 0)
 		{
@@ -96,10 +105,13 @@ client.on('interactionCreate', async interaction => {
 		const guild = client.guilds.cache.get(interaction.guildId);
 		const member = guild.members.cache.get(interaction.member.user.id);
 		const voiceChannel = member.voice.channel;
+		const {
+			getConnectionIndex,
+			nextPlayer,
+		} = require('./voice/voiceManager');
 
-		getConnectionIndex = require('./voice/getConnectionIndex');
+
 		cntIndex = getConnectionIndex(cntPlayQ, voiceChannel.id, interaction.guildId);
-		const nextPlayer = require('./voice/nextPlayer');
 		if(cntIndex === -1){
 			await interaction.reply('플레이 리스트가 없습니다.');
 			return;	
