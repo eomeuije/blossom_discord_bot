@@ -11,11 +11,11 @@
   "dependencies": {
     "@discordjs/builders": "^0.6.0",
     "@discordjs/opus": "^0.5.3",
-    "@discordjs/rest": "^0.1.0-canary.0",
+    "@discordjs/rest": "^0.5.0",
     "@discordjs/voice": "^0.6.0",
     "ansi-regex": "^5.0.1",
     "discord-api-types": "^0.23.1",
-    "discord.js": "^13.2.0",
+    "discord.js": "^14.0.0",
     "discordjs-ytdl": "^2.2.0",
     "dotenv": "^10.0.0",
     "ffmpeg": "^0.0.4",
