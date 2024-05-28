@@ -23,7 +23,7 @@
     "libsodium-wrappers": "^0.7.9",
     "module-alias": "^2.2.2",
     "node.js": "^0.0.1-security",
-    "pac-resolver": "^5.0.0",
+    "pac-resolver": "^7.0.1",
     "string-width": "^5.0.1",
     "strip-ansi": "^7.0.1",
     "yt-search": "^2.10.2",
